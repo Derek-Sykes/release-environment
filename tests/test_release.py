@@ -127,6 +127,26 @@ class ReleaseTests(unittest.TestCase):
                 m.cleanup(state)
             compose.assert_not_called()
 
+    def test_interrupted_build_cleanup_preserves_used_or_foreign_images(self):
+        state = self.pending()
+        identity = 'sha256:' + 'd' * 64
+        for foreign, used, expected in [(False, False, True), (True, False, False), (False, True, False)]:
+            calls = []
+            def compose(_state, *args):
+                calls.append(args)
+                if 'ls' in args:
+                    return identity
+                if 'ps' in args:
+                    return 'in-use' if used else ''
+                if 'inspect' in args:
+                    return json.dumps([{'Id': identity, 'RepoTags': ['unrelated:keep' if foreign else 'ghcr.io/example/synthetic:sha-a'],
+                                        'Config': {'Labels': {'org.opencontainers.image.source': 'https://github.com/example/synthetic'}}}])
+                return ''
+            state['repository'] = 'example/synthetic'
+            with patch.object(m, 'compose', side_effect=compose):
+                m.cleanup_images(state)
+            self.assertEqual(expected, any('rm' in args for args in calls))
+
     def test_cleanup_refuses_foreign_workspace(self):
         state = self.pending()
         inspected = subprocess.CompletedProcess([], 0, json.dumps([{'Labels': {'release-environment.instance': 'someone-else'}}]), '')

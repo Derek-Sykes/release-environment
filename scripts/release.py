@@ -204,6 +204,30 @@ def find_run(state):
     raise ReleaseError('GitHub has not exposed the dispatched run yet. Use .\\release.ps1 resume; do not dispatch it twice.')
 
 
+def cleanup_images(state):
+    """Catch image references left by an interrupted job, in this builder only."""
+    source = 'https://github.com/' + state['repository']
+    ids = compose(state, 'exec', '-T', 'engine', 'docker', 'image', 'ls', '--quiet', '--no-trunc',
+                  '--filter', 'label=org.opencontainers.image.source=' + source).splitlines()
+    package = 'ghcr.io/' + state['repository'].lower()
+    local_tag = state['repository'].split('/')[1].lower() + ':local'
+    for identity in set(ids):
+        if not re.fullmatch(r'sha256:[0-9a-f]{64}', identity):
+            raise ReleaseError('Builder returned an invalid image identity; cleanup stopped.')
+        used = compose(state, 'exec', '-T', 'engine', 'docker', 'ps', '--all', '--quiet', '--filter', 'ancestor=' + identity)
+        if used:
+            continue
+        item = json.loads(compose(state, 'exec', '-T', 'engine', 'docker', 'image', 'inspect', identity))[0]
+        tags = item.get('RepoTags') or []
+        digests = item.get('RepoDigests') or []
+        if (item.get('Id') != identity or (item.get('Config', {}).get('Labels') or {}).get('org.opencontainers.image.source') != source
+            or any(not (ref.startswith(package + ':sha-') or ref == local_tag) for ref in tags)
+            or any(not ref.startswith(package + '@sha256:') for ref in digests)):
+            continue
+        for ref in tags or [identity]:
+            compose(state, 'exec', '-T', 'engine', 'docker', 'image', 'rm', '--no-prune', ref)
+
+
 def cleanup(state):
     if state['mode'] == 'local' and state.get('local_started', True):
         # Never stop a busy registration. An ephemeral runner normally removes
@@ -215,6 +239,9 @@ def cleanup(state):
         if runner:
             api(f"repos/{state['repository']}/actions/runners/{runner['id']}", method='DELETE')
         docker_ready()
+        running = compose(state, 'ps', '--status', 'running', '--services')
+        if 'engine' in running.splitlines():
+            cleanup_images(state)
         compose(state, 'down', '--remove-orphans', capture=False)
         volume = 'release-environment-work-' + state['request']
         inspected = command(['docker', 'volume', 'inspect', volume], check=False)
