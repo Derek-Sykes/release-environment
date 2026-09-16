@@ -1,11 +1,11 @@
 services:
   engine:
     platform: linux/amd64
-    image: docker:28-dind@sha256:9a06753d2401cd049b34cd27dbbc3e0db717d4c1db7bc7f2efad1c187e00bf5a
+    build: ./engine
+    image: release-environment-engine:${RELEASE_INSTANCE}
     privileged: true
     environment:
       DOCKER_TLS_CERTDIR: ''
-    command: ['dockerd', '--host=unix:///var/run/docker.sock', '--host=tcp://127.0.0.1:2375', '--tls=false']
     mem_limit: ${RELEASE_MEMORY:-6g}
     cpus: ${RELEASE_CPUS:-4}
     volumes:

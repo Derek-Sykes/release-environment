@@ -86,6 +86,10 @@ def github_ready():
 def docker_ready():
     if not shutil.which('docker'):
         raise ReleaseError('Install Docker Desktop with Linux containers before using local.')
+    endpoint = os.environ.get('DOCKER_HOST') or command([
+        'docker', 'context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'])
+    if not endpoint.startswith(('unix://', 'npipe://', 'tcp://127.0.0.1:', 'tcp://localhost:')):
+        raise ReleaseError('The selected Docker context is remote. Select your local Docker engine before using local.')
     def ready():
         result = command(['docker', 'info', '--format', '{{.OSType}}'], check=False)
         return result.returncode == 0 and result.stdout.strip() == 'linux'
@@ -135,7 +139,7 @@ def compose(state, *args, data=None, capture=True, check=True):
 def prepare_runner(state):
     docker_ready()
     print('Preparing the isolated build engine and one-job runner...', flush=True)
-    compose(state, 'build', 'runner', capture=False)
+    compose(state, 'build', 'engine', 'runner', capture=False)
     compose(state, 'up', '--detach', 'engine', 'runner', capture=False)
     for _ in range(60):
         result = compose(state, 'exec', '-T', 'runner', 'docker', 'info', check=False)
@@ -276,7 +280,7 @@ def main(argv=None):
             state = {**installation(), 'request': uuid.uuid4().hex}
             if not args.github_only:
                 docker_ready()
-                compose(state, 'build', 'runner', capture=False)
+                compose(state, 'build', 'engine', 'runner', capture=False)
             print('Setup checks passed. Use .\\release.ps1 local or .\\release.ps1 github.')
             return
         active = read('active.json')

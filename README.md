@@ -80,6 +80,8 @@ finishes, server deployment does not need a VPN connection from that PC.
 
 The builder runs a dedicated Docker-in-Docker daemon. It does **not** mount the
 desktop's Docker socket, other application volumes, or your home directory.
+Nested builds use a small DNS relay to the host's existing resolver, including
+VPN-provided DNS; there are no hardcoded public resolvers or server addresses.
 Docker-in-Docker requires a privileged engine container: use this only for trusted
 application `main` commits. Public pull requests must never run on this runner.
 The public launcher repo has no automatically triggered self-hosted workflow.

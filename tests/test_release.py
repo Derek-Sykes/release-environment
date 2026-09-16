@@ -62,6 +62,14 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual('', body['inputs']['runner_label'])
         self.assertFalse(body['inputs']['test_only'])
 
+    def test_local_refuses_a_remote_docker_context(self):
+        with patch.dict(m.os.environ, {'DOCKER_HOST': 'ssh://example.invalid'}), \
+             patch.object(m.shutil, 'which', return_value='/synthetic/docker'), \
+             patch.object(m, 'command') as command:
+            with self.assertRaisesRegex(m.ReleaseError, 'remote'):
+                m.docker_ready()
+            command.assert_not_called()
+
     def test_local_and_test_start_runner_before_dispatch(self):
         for mode, test_only in [('local', False), ('test', True)]:
             (m.STATE / 'active.json').unlink(missing_ok=True)

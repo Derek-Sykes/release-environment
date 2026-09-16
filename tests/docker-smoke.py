@@ -32,6 +32,8 @@ try:
                         '--mount', 'type=bind,src=/opt/runner/_work/probe,dst=/probe,readonly',
                         'alpine:3.22', 'cat', '/probe/marker')
     assert content == 'synthetic-only'
+    m.compose(state, 'exec', '-T', 'runner', 'docker', 'run', '--rm',
+              'alpine:3.22', 'nslookup', 'deb.debian.org')
     print('Isolated engine, shared temporary bind paths, CLI and zero published ports passed.')
 finally:
     # No GitHub registration exists in this fixture. Use real resource cleanup.
