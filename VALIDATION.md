@@ -1,5 +1,40 @@
 # Validation
 
+## Latest selected-snapshot rehearsal
+
+On September 16, 2026, launcher `28bbe2741a5e1af3af1028db0383d9bbbff2ea2a`
+completed `release.ps1 local` in
+[run 35149582555](https://github.com/Derek-Sykes/VoiceVault/actions/runs/35149582555).
+Selected VoiceVault source `9a3f1cba12471c1d1c5475a89f206b666044c7d3` deployed
+successfully even though main advanced to documentation-only `2916192` while
+testing. Main merges produced no automatic release. Each new command selects a
+fresh snapshot; overlapping requests have a separate release-order guard.
+
+Production, development and restricted-agent suites each passed 704 tests, plus
+13 populated SQLite checks, Docker persistence, isolated dev/agent workflows,
+repository audits, nine pipeline and nineteen server adapter regressions.
+The same tested production image was published and deployed by digest:
+`sha256:65719d58cda75e812c466e5f4b86400388a2e0c2fcdb92751224c700e3c4d50f`.
+Server backup/migration/health/storage checks and independent data-preservation
+and live UI observations passed. No GitHub-hosted build jobs ran.
+
+Temporary local runner/network/checkout/release images were removed. Reusable
+runner and host build cache remain; unrelated apps remained healthy. Server
+retention removed seven unused images automatically. A separate reviewed
+child-first legacy cleanup removed 38 obsolete objects, preserving current and
+previous releases only. The workflow was paused for that operator cleanup and
+re-enabled. No global prune, forced removal or data/volume deletion.
+
+Two preceding attempts stopped safely before publication on transient DNS
+failures. Their workspaces cleaned up; a new explicit release performed all gates.
+The obsolete moving-main lookup was removed in response to the owner's snapshot
+requirement. Network/registry availability still matters. Physical Mac/ARM Docker
+and the billing-blocked private hosted route remain unverified. Historical
+cross-platform controller and real Linux Docker evidence follows below.
+
+## Previous release and platform evidence
+
+
 The local release route completed successfully on September 16, 2026. Public
 launcher source `c70a318d07b7e676aae3b39e704cbf731ae65b2a` released the exact
 VoiceVault main `37b119722f2bdbd1bb400566fb086228d589e4c6` in
