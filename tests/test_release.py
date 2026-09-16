@@ -140,6 +140,8 @@ class ReleaseTests(unittest.TestCase):
                     return 'in-use' if used else ''
                 if 'inspect' in args:
                     return json.dumps([{'Id': identity, 'RepoTags': ['unrelated:keep' if foreign else 'ghcr.io/example/synthetic:sha-a'],
+                                        'RepoDigests': ['synthetic-release@' + identity,
+                                                        'docker.io/library/synthetic-release@' + identity],
                                         'Config': {'Labels': {'org.opencontainers.image.source': 'https://github.com/example/synthetic', 'release-environment.request': state['request']}}}])
                 return ''
             state['repository'] = 'example/synthetic'

@@ -237,6 +237,7 @@ def cleanup_images(state):
                   '--filter', 'label=release-environment.request=' + state['request']).splitlines()
     package = 'ghcr.io/' + state['repository'].lower()
     local_prefix = state['repository'].split('/')[1].lower() + '-release:'
+    local_digest_prefix = local_prefix[:-1] + '@sha256:'
     for identity in set(ids):
         if not re.fullmatch(r'sha256:[0-9a-f]{64}', identity):
             raise ReleaseError('Builder returned an invalid image identity; cleanup stopped.')
@@ -248,8 +249,9 @@ def cleanup_images(state):
         digests = item.get('RepoDigests') or []
         if (item.get('Id') != identity or (item.get('Config', {}).get('Labels') or {}).get('org.opencontainers.image.source') != source
             or (item.get('Config', {}).get('Labels') or {}).get('release-environment.request') != state['request']
-            or any(not (ref.startswith(package + ':sha-') or ref.startswith(local_prefix)) for ref in tags)
-            or any(not ref.startswith(package + '@sha256:') for ref in digests)):
+            or any(not ref.startswith((package + ':sha-', local_prefix, 'docker.io/library/' + local_prefix)) for ref in tags)
+            or any(not ref.startswith((package + '@sha256:', local_digest_prefix,
+                                       'docker.io/library/' + local_digest_prefix)) for ref in digests)):
             continue
         for ref in tags or [identity]:
             host_docker('image', 'rm', '--no-prune', ref)

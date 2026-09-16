@@ -10,6 +10,8 @@ spec = importlib.util.spec_from_file_location('release', Path(__file__).resolve(
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 # Never share installation identity or active receipts with an actual release.
+if (m.STATE / 'active.json').exists():
+    raise RuntimeError('Finish or resume the active release before checking the whole Docker inventory.')
 m.STATE.mkdir(exist_ok=True)
 temporary_state = tempfile.TemporaryDirectory(prefix='docker-smoke-', dir=m.STATE)
 m.STATE = Path(temporary_state.name)
@@ -35,6 +37,15 @@ try:
     assert content == 'synthetic-only'
     m.compose(state, 'exec', '-T', 'runner', 'docker', 'run', '--rm',
               'alpine:3.22', 'nslookup', 'deb.debian.org')
+    tag = 'synthetic-release:' + state['request']
+    m.command(['docker', 'build', '--tag', tag,
+               '--label', 'org.opencontainers.image.source=https://github.com/example/synthetic',
+               '--label', 'release-environment.request=' + state['request'], '-'],
+              data=b'FROM alpine:3.22\n')
+    # Docker Desktop records a local repository digest before registry publication.
+    # Cleanup must accept that owned alias as well as a registry digest.
+    m.cleanup_images(state)
+    assert m.command(['docker', 'image', 'inspect', tag], check=False).returncode != 0
     print('Host engine identity, nonroot Docker access, sibling bind paths and zero published ports passed.')
 finally:
     # No GitHub registration exists in this fixture. Use real resource cleanup.
