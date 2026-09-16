@@ -20,5 +20,5 @@ RUN curl --fail --location --silent --show-error \
     && chown -R runner:runner /opt/runner
 COPY start.sh /usr/local/bin/start-runner
 RUN chmod 755 /usr/local/bin/start-runner
-ENV HOME=/home/runner RUNNER_MANUALLY_TRAP_SIG=1 DOCKER_HOST=tcp://127.0.0.1:2375 TMPDIR=/opt/runner/_work/_temp
+ENV HOME=/home/runner RUNNER_MANUALLY_TRAP_SIG=1 DOCKER_HOST=unix:///var/run/docker.sock
 ENTRYPOINT ["tini", "--", "/usr/local/bin/start-runner"]

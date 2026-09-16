@@ -140,7 +140,7 @@ class ReleaseTests(unittest.TestCase):
                     return 'in-use' if used else ''
                 if 'inspect' in args:
                     return json.dumps([{'Id': identity, 'RepoTags': ['unrelated:keep' if foreign else 'ghcr.io/example/synthetic:sha-a'],
-                                        'Config': {'Labels': {'org.opencontainers.image.source': 'https://github.com/example/synthetic'}}}])
+                                        'Config': {'Labels': {'org.opencontainers.image.source': 'https://github.com/example/synthetic', 'release-environment.request': state['request']}}}])
                 return ''
             state['repository'] = 'example/synthetic'
             with patch.object(m, 'compose', side_effect=compose):
@@ -156,6 +156,27 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(m.ReleaseError, 'ownership changed'):
                 m.cleanup(state)
             self.assertEqual(1, command.call_count)
+
+    def test_runner_refuses_to_mount_workspace_owned_by_another_request(self):
+        state = self.pending()
+        with patch.object(m, 'docker_ready', return_value='/var/run/docker.sock'), \
+             patch.object(m, 'compose') as compose, \
+             patch.object(m, 'command', side_effect=['volume', json.dumps([{
+                 'Mountpoint': '/synthetic/work', 'Labels': {'release-environment.instance': state['instance'],
+                 'release-environment.request': 'someone-else'}}])]):
+            with self.assertRaisesRegex(m.ReleaseError, 'ownership changed'):
+                m.start_runner(state)
+            self.assertFalse(any('up' in call.args for call in compose.call_args_list))
+
+    def test_cleanup_preserves_image_even_if_list_filter_returns_another_request(self):
+        state = self.pending()
+        identity = 'sha256:' + 'd' * 64
+        item = {'Id': identity, 'RepoTags': ['app-release:foreign'], 'Config': {'Labels': {
+            'org.opencontainers.image.source': 'https://github.com/example/app',
+            'release-environment.request': 'someone-else'}}}
+        with patch.object(m, 'compose', side_effect=[identity, '', json.dumps([item])]) as compose:
+            m.cleanup_images(state)
+            self.assertFalse(any('rm' in call.args for call in compose.call_args_list))
 
     def test_failed_run_is_not_reported_success_and_is_cleaned(self):
         state = self.pending(run_id=11, url='https://example.invalid/run')

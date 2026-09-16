@@ -56,7 +56,7 @@ public launcher repository does not grant access to private application source.
 ## What happens
 
 1. Resolve GitHub `main` to an exact commit and verify the app's workflow contract.
-2. For `local`, start an isolated Docker engine and a fresh one-job GitHub runner.
+2. For `local`, start a fresh one-job GitHub runner connected to your local Docker engine.
    The runner receives only that request's unique label and temporary credentials.
 3. Dispatch the app's workflow. It checks out that commit into disposable storage,
    builds the production image once, and exercises the same checks on either route.
@@ -64,7 +64,7 @@ public launcher repository does not grant access to private application source.
 5. The existing server runner checks the current revision, performs the app's
    backup/migration procedure, deploys by digest and verifies service health.
 6. The launcher removes its temporary runner, checkout volume and containers.
-   A bounded Docker build cache and the reusable runner image remain for speed.
+   Docker build cache and the reusable runner image remain for speed.
 
 No local Git changes are released. Neither route merges branches. The server's
 data remains on its persistent volumes. An old application image is not a backup
@@ -78,21 +78,22 @@ finishes, server deployment does not need a VPN connection from that PC.
 
 ## Isolation, resources and recovery
 
-The builder runs a dedicated Docker-in-Docker daemon. It does **not** mount the
-desktop's Docker socket, other application volumes, or your home directory.
-Nested builds use a small DNS relay to the host's existing resolver, including
-VPN-provided DNS; there are no hardcoded public resolvers or server addresses.
-Docker-in-Docker requires a privileged engine container: use this only for trusted
-application `main` commits. Public pull requests must never run on this runner.
-The public launcher repo has no automatically triggered self-hosted workflow.
+The runner mounts your local Docker socket and creates sibling test containers on
+that same engine. There is no nested Docker daemon, privileged engine container,
+or extra DNS service. Setup mounts the socket and grants the runner user access
+automatically; it does not change the host socket's permissions. Docker access is
+powerful: use only trusted application `main` commits. Public pull requests must
+never run on this runner. The public launcher has no self-hosted workflow.
 
-Default ceilings are 4 CPUs/6 GB for the build engine and 1 CPU/1 GB for the job
-runner; these are limits, not constant consumption. Set `RELEASE_CPUS` and
-`RELEASE_MEMORY` before invoking a command to adjust the engine. The containers
-stop after completion. The dedicated builder has a 10 GB cache GC target; in-use
-layers and temporary builds may need additional free disk space. Cache layers can
-contain previously built source; they are local disposable build data, not release
-history. No cleanup uses a global Docker prune or touches unrelated applications.
+A temporary named volume is mounted at the engine's own Linux path so sibling
+containers can bind the checked-out source consistently on Docker Desktop and
+Linux. Tests join private Docker networks, without publishing test web ports.
+The runner itself is limited to 1 CPU/1 GB; sibling builds and tests use Docker's
+existing resource limits. Adjust Docker Desktop's memory/CPU settings if needed.
+Docker's normal build-cache garbage collection applies; this tool does not change
+host-wide cache policy or perform a global prune. Cached source layers stay local.
+Temporary checkouts and unused release image references are removed by scoped
+cleanup. The runner image and build cache remain for subsequent builds.
 
 The target is Linux AMD64, matching the preconfigured server. Apple Silicon uses
 Docker's AMD64 emulation, which can be slower. An ARM Linux machine needs working

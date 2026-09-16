@@ -123,6 +123,11 @@ def docker_ready():
     if not ready():
         raise ReleaseError('Docker is not ready in Linux-container mode. Start it and retry.')
     command(['docker', 'compose', 'version'])
+    # Desktop's client socket/named pipe differs from its Linux VM socket.
+    info = json.loads(command(['docker', 'info', '--format', '{{json .}}']))
+    return ('/var/run/docker.sock' if os.name == 'nt' or sys.platform == 'darwin'
+            or 'docker desktop' in info.get('OperatingSystem', '').lower()
+            else endpoint.removeprefix('unix://'))
 
 
 def installation():
@@ -136,32 +141,50 @@ def installation():
 
 
 def compose(state, *args, data=None, capture=True, check=True):
-    env = {**os.environ, 'RELEASE_INSTANCE': state['instance'], 'RELEASE_REQUEST': state['request']}
+    env = {**os.environ, 'RELEASE_INSTANCE': state['instance'], 'RELEASE_REQUEST': state['request'],
+           'RELEASE_WORK_ROOT': state.get('work_root', '/opt/runner/_work'),
+           'RELEASE_DOCKER_SOCKET': state.get('docker_socket', '/var/run/docker.sock')}
     return command(['docker', 'compose', '--project-name', 'release-env-' + state['instance'],
                     '--file', str(ROOT / 'compose.yml'), *args],
                    data=data, capture=capture, env=env, check=check)
 
 
-def prepare_runner(state):
-    docker_ready()
-    print('Preparing the isolated build engine and one-job runner...', flush=True)
-    compose(state, 'build', 'engine', 'runner', capture=False)
+def start_runner(state):
+    state['docker_socket'] = docker_ready()
+    print('Preparing one-job runner on the local Docker engine...', flush=True)
+    compose(state, 'build', 'runner', capture=False)
     state['local_started'] = True
     save('active.json', state)
-    compose(state, 'up', '--detach', 'engine', 'runner', capture=False)
+    volume = 'release-environment-work-' + state['request']
+    command(['docker', 'volume', 'create', '--label', 'release-environment.instance=' + state['instance'],
+             '--label', 'release-environment.request=' + state['request'], volume])
+    inspected = json.loads(command(['docker', 'volume', 'inspect', volume]))[0]
+    labels = inspected.get('Labels') or {}
+    if (labels.get('release-environment.instance') != state['instance']
+        or labels.get('release-environment.request') != state['request']):
+        raise ReleaseError('Temporary workspace ownership changed; refusing to mount it.')
+    state['work_root'] = inspected['Mountpoint']
+    if not state['work_root'].startswith('/') or '..' in state['work_root'].split('/'):
+        raise ReleaseError('Docker returned an invalid workspace mount point.')
+    save('active.json', state)
+    compose(state, 'up', '--detach', 'runner', capture=False)
     for _ in range(60):
-        result = compose(state, 'exec', '-T', 'runner', 'docker', 'info', check=False)
+        result = compose(state, 'exec', '-T', 'runner', 'gosu', 'runner', 'docker', 'info', check=False)
         if result.returncode == 0:
             break
         time.sleep(2)
     else:
-        raise ReleaseError('The isolated Docker engine did not become ready.')
+        raise ReleaseError('The runner could not access the local Docker engine.')
+
+
+def prepare_runner(state):
+    start_runner(state)
     registration = api(f"repos/{state['repository']}/actions/runners/registration-token", method='POST')
     # config.sh consumes a short-lived registration token. It is never an
     # environment variable in Docker's stored container configuration.
-    compose(state, 'exec', '-T', '--user', '1000:1000', 'runner', 'sh', '-c',
+    compose(state, 'exec', '-T', 'runner', 'gosu', 'runner', 'sh', '-c',
             'IFS= read -r registration; ./config.sh --unattended --ephemeral --url "$1" '
-            '--name "$2" --labels "release-builder,$2" --work _work --token "$registration"',
+            '--name "$2" --labels "release-builder,$2" --work "$RELEASE_WORK_ROOT" --token "$registration"',
             'register', 'https://github.com/' + state['repository'], state['runner'],
             data=(registration['token'] + '\n').encode('utf-8'))
     for _ in range(60):
@@ -205,27 +228,29 @@ def find_run(state):
 
 
 def cleanup_images(state):
-    """Catch image references left by an interrupted job, in this builder only."""
+    """Remove only this request's unused images, preserving all foreign aliases."""
     source = 'https://github.com/' + state['repository']
-    ids = compose(state, 'exec', '-T', 'engine', 'docker', 'image', 'ls', '--quiet', '--no-trunc',
-                  '--filter', 'label=org.opencontainers.image.source=' + source).splitlines()
+    ids = compose(state, 'exec', '-T', 'runner', 'docker', 'image', 'ls', '--quiet', '--no-trunc',
+                  '--filter', 'label=org.opencontainers.image.source=' + source,
+                  '--filter', 'label=release-environment.request=' + state['request']).splitlines()
     package = 'ghcr.io/' + state['repository'].lower()
-    local_tag = state['repository'].split('/')[1].lower() + ':local'
+    local_prefix = state['repository'].split('/')[1].lower() + '-release:'
     for identity in set(ids):
         if not re.fullmatch(r'sha256:[0-9a-f]{64}', identity):
             raise ReleaseError('Builder returned an invalid image identity; cleanup stopped.')
-        used = compose(state, 'exec', '-T', 'engine', 'docker', 'ps', '--all', '--quiet', '--filter', 'ancestor=' + identity)
+        used = compose(state, 'exec', '-T', 'runner', 'docker', 'ps', '--all', '--quiet', '--filter', 'ancestor=' + identity)
         if used:
             continue
-        item = json.loads(compose(state, 'exec', '-T', 'engine', 'docker', 'image', 'inspect', identity))[0]
+        item = json.loads(compose(state, 'exec', '-T', 'runner', 'docker', 'image', 'inspect', identity))[0]
         tags = item.get('RepoTags') or []
         digests = item.get('RepoDigests') or []
         if (item.get('Id') != identity or (item.get('Config', {}).get('Labels') or {}).get('org.opencontainers.image.source') != source
-            or any(not (ref.startswith(package + ':sha-') or ref == local_tag) for ref in tags)
+            or (item.get('Config', {}).get('Labels') or {}).get('release-environment.request') != state['request']
+            or any(not (ref.startswith(package + ':sha-') or ref.startswith(local_prefix)) for ref in tags)
             or any(not ref.startswith(package + '@sha256:') for ref in digests)):
             continue
         for ref in tags or [identity]:
-            compose(state, 'exec', '-T', 'engine', 'docker', 'image', 'rm', '--no-prune', ref)
+            compose(state, 'exec', '-T', 'runner', 'docker', 'image', 'rm', '--no-prune', ref)
 
 
 def cleanup(state):
@@ -240,7 +265,7 @@ def cleanup(state):
             api(f"repos/{state['repository']}/actions/runners/{runner['id']}", method='DELETE')
         docker_ready()
         running = compose(state, 'ps', '--status', 'running', '--services')
-        if 'engine' in running.splitlines():
+        if 'runner' in running.splitlines():
             cleanup_images(state)
         compose(state, 'down', '--remove-orphans', capture=False)
         volume = 'release-environment-work-' + state['request']
@@ -316,7 +341,7 @@ def main(argv=None):
             state = {**installation(), 'request': uuid.uuid4().hex}
             if not args.github_only:
                 docker_ready()
-                compose(state, 'build', 'engine', 'runner', capture=False)
+                compose(state, 'build', 'runner', capture=False)
             print('Setup checks passed. Use .\\release.ps1 local or .\\release.ps1 github.')
             return
         active = read('active.json')

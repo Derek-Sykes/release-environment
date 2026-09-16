@@ -41,3 +41,13 @@ Separate source-controlled scripts from runner state, application data and cache
 
 VoiceVault's adapter lives in VoiceVault itself. This repository deliberately does
 not copy VoiceVault's application source, tests or production secrets.
+
+## Local Docker topology
+
+The runner controls the host Docker engine through its socket. Application tests
+must use request-unique container/project/image identities, bind paths under the
+provided workspace/TMPDIR, and private test-network access instead of assuming
+that the runner's localhost is the Docker host. VoiceVault's network helper joins
+and leaves the runner on its temporary Compose test network. No test web ports
+are published in this mode. Labels and exact ownership checks govern cleanup;
+never use global image/container/volume pruning. Host-managed build cache remains.
