@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -49,6 +50,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(one, m.installation())
         (m.STATE / 'installation.json').unlink()
         self.assertNotEqual(one, m.installation())
+
+    def test_token_transport_does_not_add_windows_carriage_returns(self):
+        output = m.command([sys.executable, '-c', 'import sys; print(sys.stdin.buffer.read().hex())'], data=b'synthetic\n')
+        self.assertEqual(b'synthetic\n'.hex(), output)
 
     def test_github_route_does_not_require_docker(self):
         with patch.object(m, 'github_ready'), patch.object(m, 'profile', return_value=self.config), \
@@ -126,6 +131,7 @@ class ReleaseTests(unittest.TestCase):
         state = self.pending()
         inspected = subprocess.CompletedProcess([], 0, json.dumps([{'Labels': {'release-environment.instance': 'someone-else'}}]), '')
         with patch.object(m, 'api', return_value={'runners': []}), patch.object(m, 'compose'), \
+             patch.object(m, 'docker_ready'), \
              patch.object(m, 'command', return_value=inspected) as command:
             with self.assertRaisesRegex(m.ReleaseError, 'ownership changed'):
                 m.cleanup(state)

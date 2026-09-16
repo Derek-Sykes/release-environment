@@ -28,10 +28,16 @@ class ReleaseError(RuntimeError):
 
 
 def command(args, *, data=None, capture=True, env=None, check=True):
-    result = subprocess.run(args, input=data, text=True, encoding='utf-8',
+    binary = isinstance(data, bytes)
+    result = subprocess.run(args, input=data, text=not binary, encoding=None if binary else 'utf-8',
                             stdout=subprocess.PIPE if capture else None,
                             stderr=subprocess.PIPE if capture else None,
                             env=env, cwd=ROOT, check=False)
+    if binary:
+        if result.stdout is not None:
+            result.stdout = result.stdout.decode('utf-8')
+        if result.stderr is not None:
+            result.stderr = result.stderr.decode('utf-8')
     if check and result.returncode:
         # API responses and Docker commands can contain private connection details.
         raise ReleaseError(f'{Path(str(args[0])).name} could not complete {args[1] if len(args)>1 else "the command"} (exit {result.returncode}).')
@@ -86,9 +92,9 @@ def github_ready():
 def docker_ready():
     if not shutil.which('docker'):
         raise ReleaseError('Install Docker Desktop with Linux containers before using local.')
-    endpoint = os.environ.get('DOCKER_HOST') or command([
-        'docker', 'context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'])
-    if not endpoint.startswith(('unix://', 'npipe://', 'tcp://127.0.0.1:', 'tcp://localhost:')):
+    endpoint = os.environ.get('DOCKER_HOST') if not os.environ.get('DOCKER_CONTEXT') else None
+    endpoint = endpoint or command(['docker', 'context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'])
+    if not endpoint.startswith(('unix://', 'npipe://')):
         raise ReleaseError('The selected Docker context is remote. Select your local Docker engine before using local.')
     def ready():
         result = command(['docker', 'info', '--format', '{{.OSType}}'], check=False)
@@ -140,6 +146,8 @@ def prepare_runner(state):
     docker_ready()
     print('Preparing the isolated build engine and one-job runner...', flush=True)
     compose(state, 'build', 'engine', 'runner', capture=False)
+    state['local_started'] = True
+    save('active.json', state)
     compose(state, 'up', '--detach', 'engine', 'runner', capture=False)
     for _ in range(60):
         result = compose(state, 'exec', '-T', 'runner', 'docker', 'info', check=False)
@@ -155,7 +163,7 @@ def prepare_runner(state):
             'IFS= read -r registration; ./config.sh --unattended --ephemeral --url "$1" '
             '--name "$2" --labels "release-builder,$2" --work _work --token "$registration"',
             'register', 'https://github.com/' + state['repository'], state['runner'],
-            data=registration['token'] + '\n')
+            data=(registration['token'] + '\n').encode('utf-8'))
     for _ in range(60):
         runners = api(f"repos/{state['repository']}/actions/runners?per_page=100")['runners']
         match = next((r for r in runners if r['name'] == state['runner']), None)
@@ -197,7 +205,7 @@ def find_run(state):
 
 
 def cleanup(state):
-    if state['mode'] == 'local':
+    if state['mode'] == 'local' and state.get('local_started', True):
         # Never stop a busy registration. An ephemeral runner normally removes
         # itself automatically when the build job finishes.
         runners = api(f"repos/{state['repository']}/actions/runners?per_page=100")['runners']
@@ -206,6 +214,7 @@ def cleanup(state):
             raise ReleaseError('The build runner is still busy; cleanup deferred. Use resume later.')
         if runner:
             api(f"repos/{state['repository']}/actions/runners/{runner['id']}", method='DELETE')
+        docker_ready()
         compose(state, 'down', '--remove-orphans', capture=False)
         volume = 'release-environment-work-' + state['request']
         inspected = command(['docker', 'volume', 'inspect', volume], check=False)
@@ -300,7 +309,7 @@ def main(argv=None):
         request = uuid.uuid4().hex
         state = {**installation(), **config, 'revision': revision,
                  'mode': 'local' if args.mode == 'test' else args.mode, 'test_only': args.mode == 'test',
-                 'request': request, 'runner': 'release-local-' + request}
+                 'request': request, 'runner': 'release-local-' + request, 'local_started': False}
         save('active.json', state)
         print(f"Releasing {state['repository']} main at {revision} using {args.mode}.", flush=True)
         try:
