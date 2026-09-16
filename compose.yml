@@ -1,0 +1,38 @@
+services:
+  engine:
+    platform: linux/amd64
+    image: docker:28-dind@sha256:9a06753d2401cd049b34cd27dbbc3e0db717d4c1db7bc7f2efad1c187e00bf5a
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ''
+    command: ['dockerd', '--host=unix:///var/run/docker.sock', '--host=tcp://127.0.0.1:2375', '--tls=false']
+    mem_limit: ${RELEASE_MEMORY:-6g}
+    cpus: ${RELEASE_CPUS:-4}
+    volumes:
+      - cache:/var/lib/docker
+      - work:/opt/runner/_work
+      - ./runner/daemon.json:/etc/docker/daemon.json:ro
+    labels:
+      release-environment.instance: ${RELEASE_INSTANCE}
+  runner:
+    platform: linux/amd64
+    build: ./runner
+    image: release-environment-runner:${RELEASE_INSTANCE}
+    network_mode: service:engine
+    depends_on: [engine]
+    mem_limit: 1g
+    cpus: 1
+    volumes:
+      - work:/opt/runner/_work
+    labels:
+      release-environment.instance: ${RELEASE_INSTANCE}
+volumes:
+  cache:
+    name: release-environment-cache-${RELEASE_INSTANCE}
+    labels:
+      release-environment.instance: ${RELEASE_INSTANCE}
+  work:
+    name: release-environment-work-${RELEASE_REQUEST}
+    labels:
+      release-environment.instance: ${RELEASE_INSTANCE}
+      release-environment.request: ${RELEASE_REQUEST}
