@@ -132,7 +132,7 @@ class ReleaseTests(unittest.TestCase):
         identity = 'sha256:' + 'd' * 64
         for foreign, used, expected in [(False, False, True), (True, False, False), (False, True, False)]:
             calls = []
-            def compose(_state, *args):
+            def host_command(args):
                 calls.append(args)
                 if 'ls' in args:
                     return identity
@@ -143,7 +143,7 @@ class ReleaseTests(unittest.TestCase):
                                         'Config': {'Labels': {'org.opencontainers.image.source': 'https://github.com/example/synthetic', 'release-environment.request': state['request']}}}])
                 return ''
             state['repository'] = 'example/synthetic'
-            with patch.object(m, 'compose', side_effect=compose):
+            with patch.object(m, 'command', side_effect=host_command):
                 m.cleanup_images(state)
             self.assertEqual(expected, any('rm' in args for args in calls))
 
@@ -151,7 +151,7 @@ class ReleaseTests(unittest.TestCase):
         state = self.pending()
         inspected = subprocess.CompletedProcess([], 0, json.dumps([{'Labels': {'release-environment.instance': 'someone-else'}}]), '')
         with patch.object(m, 'api', return_value={'runners': []}), patch.object(m, 'compose'), \
-             patch.object(m, 'docker_ready'), \
+             patch.object(m, 'docker_ready'), patch.object(m, 'cleanup_images'), \
              patch.object(m, 'command', return_value=inspected) as command:
             with self.assertRaisesRegex(m.ReleaseError, 'ownership changed'):
                 m.cleanup(state)
@@ -174,9 +174,9 @@ class ReleaseTests(unittest.TestCase):
         item = {'Id': identity, 'RepoTags': ['app-release:foreign'], 'Config': {'Labels': {
             'org.opencontainers.image.source': 'https://github.com/example/app',
             'release-environment.request': 'someone-else'}}}
-        with patch.object(m, 'compose', side_effect=[identity, '', json.dumps([item])]) as compose:
+        with patch.object(m, 'command', side_effect=[identity, '', json.dumps([item])]) as command:
             m.cleanup_images(state)
-            self.assertFalse(any('rm' in call.args for call in compose.call_args_list))
+            self.assertFalse(any('rm' in call.args[0] for call in command.call_args_list))
 
     def test_failed_run_is_not_reported_success_and_is_cleaned(self):
         state = self.pending(run_id=11, url='https://example.invalid/run')

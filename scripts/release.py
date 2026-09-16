@@ -229,8 +229,10 @@ def find_run(state):
 
 def cleanup_images(state):
     """Remove only this request's unused images, preserving all foreign aliases."""
+    def host_docker(*args):
+        return command(['docker', *args])
     source = 'https://github.com/' + state['repository']
-    ids = compose(state, 'exec', '-T', 'runner', 'docker', 'image', 'ls', '--quiet', '--no-trunc',
+    ids = host_docker('image', 'ls', '--quiet', '--no-trunc',
                   '--filter', 'label=org.opencontainers.image.source=' + source,
                   '--filter', 'label=release-environment.request=' + state['request']).splitlines()
     package = 'ghcr.io/' + state['repository'].lower()
@@ -238,10 +240,10 @@ def cleanup_images(state):
     for identity in set(ids):
         if not re.fullmatch(r'sha256:[0-9a-f]{64}', identity):
             raise ReleaseError('Builder returned an invalid image identity; cleanup stopped.')
-        used = compose(state, 'exec', '-T', 'runner', 'docker', 'ps', '--all', '--quiet', '--filter', 'ancestor=' + identity)
+        used = host_docker('ps', '--all', '--quiet', '--filter', 'ancestor=' + identity)
         if used:
             continue
-        item = json.loads(compose(state, 'exec', '-T', 'runner', 'docker', 'image', 'inspect', identity))[0]
+        item = json.loads(host_docker('image', 'inspect', identity))[0]
         tags = item.get('RepoTags') or []
         digests = item.get('RepoDigests') or []
         if (item.get('Id') != identity or (item.get('Config', {}).get('Labels') or {}).get('org.opencontainers.image.source') != source
@@ -250,7 +252,7 @@ def cleanup_images(state):
             or any(not ref.startswith(package + '@sha256:') for ref in digests)):
             continue
         for ref in tags or [identity]:
-            compose(state, 'exec', '-T', 'runner', 'docker', 'image', 'rm', '--no-prune', ref)
+            host_docker('image', 'rm', '--no-prune', ref)
 
 
 def cleanup(state):
@@ -264,9 +266,7 @@ def cleanup(state):
         if runner:
             api(f"repos/{state['repository']}/actions/runners/{runner['id']}", method='DELETE')
         docker_ready()
-        running = compose(state, 'ps', '--status', 'running', '--services')
-        if 'runner' in running.splitlines():
-            cleanup_images(state)
+        cleanup_images(state)
         compose(state, 'down', '--remove-orphans', capture=False)
         volume = 'release-environment-work-' + state['request']
         inspected = command(['docker', 'volume', 'inspect', volume], check=False)

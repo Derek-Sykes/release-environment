@@ -11,7 +11,8 @@ is claimed yet.
 - Previous revision e0581f6: native controller CI passed Windows, Linux and macOS
   (run 35128921090). Actual ephemeral registration/online/removal passed on Windows
   against the app repository using short-lived credentials; updated sibling
-  registration and full application pipeline are pending.
+  registration/online/removal also passed from a fresh clone. Full application
+  pipeline is pending.
 - The removed nested-engine prototype is superseded. No physical macOS/Apple
   Silicon or separate Linux-host Docker execution has been exercised. AMD64
   emulation and native controller checks do not prove those environments.
