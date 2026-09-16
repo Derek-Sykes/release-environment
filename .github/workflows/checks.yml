@@ -1,0 +1,34 @@
+name: Launcher checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  controller:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -B -m unittest discover -s tests -v
+      - name: Check Bash wrappers
+        if: runner.os != 'Windows'
+        run: |
+          bash -n release.sh setup.sh test.sh runner/start.sh
+          ./release.sh --help
+      - name: Check PowerShell entry point
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($file in @('setup.ps1', 'release.ps1', 'test.ps1')) {
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$null, [ref]$parseErrors) | Out-Null
+            if ($parseErrors) { throw "PowerShell parse failed: $file" }
+          }
