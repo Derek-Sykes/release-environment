@@ -61,13 +61,16 @@ public launcher repository does not grant access to private application source.
 3. Dispatch the app's workflow. It checks out that commit into disposable storage,
    builds the production image once, and exercises the same checks on either route.
 4. A test-only run stops here. A release publishes the exact tested image to GHCR.
-5. The existing server runner checks the current revision, performs the app's
+5. The existing server runner verifies the selected revision and request order, performs the app's
    backup/migration procedure, deploys by digest and verifies service health.
 6. The launcher removes its temporary runner, checkout volume and containers.
    Docker build cache and the reusable runner image remain for speed.
 
 VoiceVault releases are manual: merging dev into main does not publish or deploy.
-Run a release command when main is ready. No local Git changes are released.
+Run a release command when main is ready. That selects main's exact commit once;
+later pushes do not cancel it or change what gets tested/deployed. Start another
+release to select newer code. A slower older request cannot overwrite a newer
+request that has already deployed. No local Git changes are released.
 Neither route merges branches. The server's
 data remains on its persistent volumes. An old application image is not a backup
 of a database, recordings or configuration.

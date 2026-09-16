@@ -14,8 +14,9 @@ accept `workflow_dispatch` inputs:
 - `test_only`: boolean; tests must not publish or deploy when true.
 
 Its dispatched run name is `Release <request_id> (<build_location>)` so an uncertain
-dispatch can be resumed without launching another run. Check out the dispatched
-commit and fail if it does not match `expected_sha`. Dispatches targeting any
+dispatch can be resumed without launching another run. Check out `expected_sha`
+explicitly in every release job. Validate its ancestry against the main commit at
+dispatch; later main commits do not change the selected version. Dispatches targeting any
 branch except main must not run local build, publication or deployment jobs.
 
 The local route must have exactly one build/test/publication job, requiring all
@@ -32,7 +33,10 @@ environment checks may build their own distinct development image.
 
 Keep mutation-safe backup/migration and health gates in the server adapter, plus
 one deployment concurrency group shared by automatic pushes and both manual
-routes. Recheck current main before publication and cutover. Never infer readiness
+routes. Preserve the selected revision through publication and cutover; do not
+recheck a moving main ref or fail merely because new code arrived. Guard request
+ordering separately: VoiceVault records its workflow run number in image labels
+and rejects an older request after a newer one deployed. Never infer readiness
 from a mutable tag or blindly roll back a database with an old application image.
 
 Clean up exact task-owned resources on success and failure. Leave small logs and
