@@ -66,7 +66,9 @@ public launcher repository does not grant access to private application source.
 6. The launcher removes its temporary runner, checkout volume and containers.
    Docker build cache and the reusable runner image remain for speed.
 
-No local Git changes are released. Neither route merges branches. The server's
+VoiceVault releases are manual: merging dev into main does not publish or deploy.
+Run a release command when main is ready. No local Git changes are released.
+Neither route merges branches. The server's
 data remains on its persistent volumes. An old application image is not a backup
 of a database, recordings or configuration.
 
