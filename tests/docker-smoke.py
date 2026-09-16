@@ -2,13 +2,17 @@
 import importlib.util
 import json
 from pathlib import Path
-import time
+import tempfile
 import uuid
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('release', Path(__file__).resolve().parents[1] / 'scripts/release.py')
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+# Never share installation identity or active receipts with an actual release.
+m.STATE.mkdir(exist_ok=True)
+temporary_state = tempfile.TemporaryDirectory(prefix='docker-smoke-', dir=m.STATE)
+m.STATE = Path(temporary_state.name)
 state = {**m.installation(), 'request': uuid.uuid4().hex, 'mode': 'local',
          'repository': 'example/synthetic', 'runner': 'not-registered', 'revision': 'a' * 40}
 before = set(m.command(['docker', 'ps', '--format', '{{.ID}}']).splitlines())
@@ -36,6 +40,8 @@ finally:
     # No GitHub registration exists in this fixture. Use real resource cleanup.
     with patch.object(m, 'api', return_value={'runners': []}):
         m.cleanup(state)
+    m.command(['docker', 'image', 'rm', '--no-prune', 'release-environment-runner:' + state['instance']])
+    temporary_state.cleanup()
 after = set(m.command(['docker', 'ps', '--format', '{{.ID}}']).splitlines())
 assert before == after, 'Unrelated running container identities changed'
 print('Temporary containers/work volume removed; cache and unrelated containers preserved.')

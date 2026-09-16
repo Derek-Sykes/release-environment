@@ -32,3 +32,12 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$null, [ref]$parseErrors) | Out-Null
             if ($parseErrors) { throw "PowerShell parse failed: $file" }
           }
+  docker-topology:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Verify sibling Docker engine, mounts and cleanup
+        run: python3 -B tests/docker-smoke.py
