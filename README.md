@@ -67,7 +67,8 @@ public launcher repository does not grant access to private application source.
 6. After all jobs finish, the launcher reports their separate results and removes its
    temporary runner, checkout volume and containers. A development failure does not
    undo or obscure a successful production deployment.
-   Docker build cache and the reusable runner image remain for speed.
+   The controller leaves the runner image and host build cache for scoped review.
+   Remove finished resources at handoff unless they have a concrete near-term use.
 
 VoiceVault releases are manual: merging dev into main does not publish or deploy.
 Run a release command when main is ready. That selects main's exact commit once;
@@ -101,7 +102,13 @@ existing resource limits. Adjust Docker Desktop's memory/CPU settings if needed.
 Docker's normal build-cache garbage collection applies; this tool does not change
 host-wide cache policy or perform a global prune. Cached source layers stay local.
 Temporary checkouts and unused release image references are removed by scoped
-cleanup. The runner image and build cache remain for subsequent builds.
+cleanup. Afterward, inspect and remove the unused runner image and task-owned
+cache by exact identity. Retain them only for active work or a concrete near-term
+follow-up, with a reason and recheck point; published source can be rebuilt.
+Preserve real application data, credentials, tool homes, backups and unrelated
+active work. A designated persistent local test environment is a standing
+retention exception: keep its services, current image and required state until
+its owner retires or replaces it. Never use an indiscriminate global prune.
 
 The target is Linux AMD64, matching the preconfigured server. Apple Silicon uses
 Docker's AMD64 emulation, which can be slower. An ARM Linux machine needs working
@@ -117,7 +124,8 @@ runner rather than risking duplicate deployments or deleting active work.
 `.state/` stores this clone's resource identity and small operation receipts. It is
 ignored by Git. Do not copy `.state/` to another computer or delete it during a
 release; a fresh clone must generate its own identity. Keep this small controller
-state, the runner image and caches; application checkouts are temporary.
+state; application checkouts are temporary and images/caches follow the scoped
+retention rule above.
 
 ## Another application
 
