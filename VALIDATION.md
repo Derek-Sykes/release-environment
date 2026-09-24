@@ -80,3 +80,13 @@ automatic approval review blocked its deletion; its Docker resources were remove
 Run `python -B -m unittest discover -s tests -v` for source tests and
 `python -B tests/docker-smoke.py` for the isolated synthetic sibling fixture.
 The latter starts Docker resources but does not register with GitHub or deploy.
+
+## 2026-09-24 - workflow-scoped local runner, source checks
+
+Contract 2 keeps the uniquely labeled local runner for sequential production and
+development jobs, allowing the separate server job to deploy concurrently with
+development validation. Contract 1 retains its one-job lifecycle. Final receipts
+distinguish deployed production from failed development checks. Twenty-two local
+controller/public-source tests pass on Windows, including version mismatch,
+registration token transport, interrupted cleanup and separate outcome reporting.
+Actual contract-2 job reuse and final cleanup remain to be exercised with the app.

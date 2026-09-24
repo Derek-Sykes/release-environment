@@ -2,6 +2,5 @@
   "repository": "Derek-Sykes/VoiceVault",
   "branch": "main",
   "workflow": "ci.yml",
-  "contract": 1
+  "contract": 2
 }
-

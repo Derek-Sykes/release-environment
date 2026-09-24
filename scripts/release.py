@@ -72,10 +72,10 @@ def profile(app):
     if not path.is_file():
         raise ReleaseError(f'No profile for {app}. Add profiles/{app}.json using the documented contract.')
     data = json.loads(path.read_text(encoding='utf-8'))
-    if (data.get('contract') != 1 or data.get('branch') != 'main'
+    if (data.get('contract') not in (1, 2) or data.get('branch') != 'main'
         or not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', data.get('repository', ''))
         or not re.fullmatch(r'[A-Za-z0-9_.-]+\.ya?ml', data.get('workflow', ''))):
-        raise ReleaseError('The profile must name a repository, main branch and contract-1 workflow.')
+        raise ReleaseError('The profile must name a repository, main branch and a supported workflow contract (1 or 2).')
     return data
 
 
@@ -151,7 +151,7 @@ def compose(state, *args, data=None, capture=True, check=True):
 
 def start_runner(state):
     state['docker_socket'] = docker_ready()
-    print('Preparing one-job runner on the local Docker engine...', flush=True)
+    print('Preparing request-scoped runner on the local Docker engine...', flush=True)
     compose(state, 'build', 'runner', capture=False)
     state['local_started'] = True
     save('active.json', state)
@@ -182,8 +182,11 @@ def prepare_runner(state):
     registration = api(f"repos/{state['repository']}/actions/runners/registration-token", method='POST')
     # config.sh consumes a short-lived registration token. It is never an
     # environment variable in Docker's stored container configuration.
+    # Contract 2 reuses this uniquely labeled runner for sequential jobs within
+    # one workflow. The controller unregisters it only after every job finishes.
+    lifetime = '--ephemeral ' if state.get('contract', 1) == 1 else ''
     compose(state, 'exec', '-T', 'runner', 'gosu', 'runner', 'sh', '-c',
-            'IFS= read -r registration; ./config.sh --unattended --ephemeral --url "$1" '
+            'IFS= read -r registration; ./config.sh --unattended ' + lifetime + '--url "$1" '
             '--name "$2" --labels "release-builder,$2" --work "$RELEASE_WORK_ROOT" --token "$registration"',
             'register', 'https://github.com/' + state['repository'], state['runner'],
             data=(registration['token'] + '\n').encode('utf-8'))
@@ -206,8 +209,9 @@ def workflow_revision(config):
         raise ReleaseError('GitHub did not return a valid main revision.')
     workflow = api(f"repos/{repo}/contents/.github/workflows/{config['workflow']}?ref={commit}")
     content = base64.b64decode(workflow['content']).decode('utf-8')
-    if '# release-environment-contract: 1' not in content:
-        raise ReleaseError('This application has not integrated release-environment contract 1 on main yet.')
+    contract = config['contract']
+    if not re.search(r'^# release-environment-contract: ' + str(contract) + r'\s*$', content, re.MULTILINE):
+        raise ReleaseError(f'This application has not integrated release-environment contract {contract} on main yet.')
     return commit
 
 
@@ -278,7 +282,7 @@ def cleanup(state):
                 or labels.get('release-environment.request') != state['request']):
                 raise ReleaseError('Temporary workspace ownership changed; refusing cleanup.')
             command(['docker', 'volume', 'rm', volume])
-    save('last.json', {k: state[k] for k in ('repository', 'revision', 'mode', 'run_id', 'url', 'conclusion') if k in state})
+    save('last.json', {k: state[k] for k in ('repository', 'revision', 'mode', 'run_id', 'url', 'conclusion', 'jobs') if k in state})
     (STATE / 'active.json').unlink(missing_ok=True)
 
 
@@ -295,9 +299,16 @@ def follow(state):
             last = status
         if run['status'] == 'completed':
             state['conclusion'] = run['conclusion']
+            if state.get('contract', 1) >= 2:
+                jobs = api(f"repos/{state['repository']}/actions/runs/{state['run_id']}/jobs?per_page=100")
+                state['jobs'] = {job['name']: job.get('conclusion') for job in jobs['jobs']}
+                for name, result in state['jobs'].items():
+                    print(f'{name}: {result}', flush=True)
             save('active.json', state)
             cleanup(state)
             if run['conclusion'] != 'success':
+                if state.get('jobs', {}).get('deploy-release') == 'success':
+                    raise ReleaseError('Production deployment succeeded, but other workflow checks did not succeed. See the separate job results; the deployed image remains in place.')
                 raise ReleaseError('The release did not succeed. See the GitHub run for the failed stage; no automatic database rollback was attempted.')
             return
         time.sleep(10)

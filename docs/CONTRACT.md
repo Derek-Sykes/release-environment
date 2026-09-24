@@ -1,16 +1,16 @@
-# Application workflow contract, version 1
+# Application workflow contracts
 
 An application profile names `repository`, `branch: main`, `workflow` (a YAML
-filename), and `contract: 1`. The public launcher is generic; it does not discover
+filename), and `contract: 1` or `contract: 2`. The public launcher is generic; it does not discover
 or rewrite server configuration and cannot grant itself access to an application.
 
-The app's workflow on main must include `# release-environment-contract: 1` and
+The app's workflow on main must include a matching `# release-environment-contract: 2` (or `1`) and
 accept `workflow_dispatch` inputs:
 
 - `build_location`: `local` or `github`.
 - `request_id`: a unique request identifier.
 - `expected_sha`: the exact 40-character main commit selected before dispatch.
-- `runner_label`: unique `release-local-<request_id>` label for the local job.
+- `runner_label`: unique `release-local-<request_id>` label for local jobs.
 - `test_only`: boolean; tests must not publish or deploy when true.
 
 Its dispatched run name is `Release <request_id> (<build_location>)` so an uncertain
@@ -19,12 +19,19 @@ explicitly in every release job. Validate its ancestry against the main commit a
 dispatch; later main commits do not change the selected version. Dispatches targeting any
 branch except main must not run local build, publication or deployment jobs.
 
-The local route must have exactly one build/test/publication job, requiring all
-labels `self-hosted`, `linux`, `x64`, `release-builder` and the request's unique
-label. The runner is ephemeral and accepts only one job. Tests inside that job
-can invoke as many isolated containers as the app needs. Hosted jobs must be
-skipped on this route. The server's separate runner remains responsible for
-deployment. A test-only run must not receive server credentials.
+Local jobs require all labels `self-hosted`, `linux`, `x64`, `release-builder`
+and the request's unique label. Contract 1 supplies an ephemeral one-job runner.
+Contract 2 keeps that request-scoped runner registered until the whole workflow
+finishes, allowing sequential local jobs. The launcher then unregisters and
+removes it. Resume an interrupted controller to follow the same run and finish
+cleanup; never start a replacement request while it remains active.
+
+VoiceVault uses contract 2: production image checks/publication finish first;
+development/agent validation then reuses the local runner while the separate
+server runner deploys. Both jobs depend only on publication, so a development
+failure remains visible without blocking or rolling back production. The final
+receipt records each job's result. Hosted jobs must be skipped on the local route.
+A test-only run must not receive server credentials, publish or deploy.
 
 Use temporary `GITHUB_TOKEN` credentials with minimal permissions. Do not request
 Git write or branch-merging authority. Test-only code should never publish. Build

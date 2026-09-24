@@ -51,6 +51,42 @@ class ReleaseTests(unittest.TestCase):
         (m.STATE / 'installation.json').unlink()
         self.assertNotEqual(one, m.installation())
 
+    def test_contract_two_requires_matching_main_workflow(self):
+        config = {**self.config, 'contract': 2}
+        for version in (1, 2):
+            responses = [{'object': {'sha': 'a' * 40}}, {'content': base64.b64encode(
+                f'# release-environment-contract: {version}\n'.encode()).decode()}]
+            with patch.object(m, 'api', side_effect=responses):
+                if version == 2:
+                    self.assertEqual(m.workflow_revision(config), 'a' * 40)
+                else:
+                    with self.assertRaises(m.ReleaseError):
+                        m.workflow_revision(config)
+
+    def test_runner_lifetime_matches_workflow_contract_without_exposing_token(self):
+        for contract in (1, 2):
+            state = self.pending(contract=contract)
+            responses = [{'token': 'synthetic-registration'}, {'runners': [
+                {'id': 12, 'name': state['runner'], 'status': 'online'}]}]
+            with patch.object(m, 'start_runner'), patch.object(m, 'save'), \
+                 patch.object(m, 'api', side_effect=responses), patch.object(m, 'compose') as compose:
+                m.prepare_runner(state)
+            command = compose.call_args.args
+            self.assertEqual('--ephemeral' in ' '.join(str(v) for v in command), contract == 1)
+            self.assertNotIn('synthetic-registration', str(command))
+            self.assertEqual(compose.call_args.kwargs['data'], b'synthetic-registration\n')
+
+    def test_deployed_production_and_failed_development_are_reported_separately(self):
+        state = self.pending(contract=2, run_id=11, url='https://example.invalid/run')
+        responses = [{'status': 'completed', 'conclusion': 'failure'}, {'jobs': [
+            {'name': 'deploy-release', 'conclusion': 'success'},
+            {'name': 'development-checks', 'conclusion': 'failure'}]}]
+        with patch.object(m, 'api', side_effect=responses), patch.object(m, 'cleanup') as cleanup:
+            with self.assertRaisesRegex(m.ReleaseError, 'Production deployment succeeded'):
+                m.follow(state)
+        cleanup.assert_called_once_with(state)
+        self.assertEqual(m.read('active.json')['jobs']['development-checks'], 'failure')
+
     def test_token_transport_does_not_add_windows_carriage_returns(self):
         output = m.command([sys.executable, '-c', 'import sys; print(sys.stdin.buffer.read().hex())'], data=b'synthetic\n')
         self.assertEqual(b'synthetic\n'.hex(), output)
