@@ -61,4 +61,13 @@ provided workspace/TMPDIR, and private test-network access instead of assuming
 that the runner's localhost is the Docker host. VoiceVault's network helper joins
 and leaves the runner on its temporary Compose test network. No test web ports
 are published in this mode. Labels and exact ownership checks govern cleanup;
-never use global image/container/volume pruning. Host-managed build cache remains.
+never use global image/container/volume pruning. The controller leaves host-managed
+build cache for a scoped ownership review. Remove finished disposable resources
+promptly; retain only active resources or concrete near-term reuse, with a reason
+and recheck point. Persistent application data, credentials, tool homes, backups
+and unrelated active work remain protected. Rebuildable source is not a reason
+to retain every old image indefinitely.
+
+An owner-designated local test environment is a standing retention exception,
+including its services, current image and required state. Disposable workflow
+fixtures remain subject to cleanup; do not confuse the two.

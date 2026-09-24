@@ -90,3 +90,38 @@ distinguish deployed production from failed development checks. Twenty-two local
 controller/public-source tests pass on Windows, including version mismatch,
 registration token transport, interrupted cleanup and separate outcome reporting.
 Actual contract-2 job reuse and final cleanup remain to be exercised with the app.
+
+## 2026-09-24 - contract 2 deployment and retention policy
+
+Launcher main `bf9d97b25d304d170ffc7acaf23fc0e89b048458` dispatched VoiceVault
+main `5a8079e15ce38d849ae260279fd261565bbf13b1` locally in
+[run 36010545076](https://github.com/Derek-Sykes/VoiceVault/actions/runs/36010545076).
+The same request-specific Windows Docker Desktop runner handled production
+publication and the subsequent development job. Production passed 787 tests
+and 13 populated migration checks before publishing the exact tested image:
+`sha256:36025fb99fc17b4f48d50ba9b877c8eed8ba320f76755f84041d089b3c400d35`.
+
+Deployment and development checks both started at 14:13:29 UTC. Deployment
+finished successfully at 14:14:42 UTC, while development checks continued.
+The server verified its encrypted backup, migration, API/worker health and
+preserved storage/network identities. Development and restricted-agent suites
+subsequently passed 787 tests each. These jobs all used self-hosted runners;
+no application hosted fallback ran. A desktop-to-server independent inspection
+timed out; server-runner validation is the live evidence for this release.
+
+The owner explicitly corrected indefinite image/cache retention. The README,
+contract and agent instructions now require scoped cleanup at handoff unless
+resources are active or have documented concrete near-term use. Controller
+cleanup still owns the request's containers, checkout volume and registration;
+remaining tool images/cache require an explicit scoped review, not global prune.
+These documentation changes do not alter controller or application code.
+Twenty-two controller/public-source tests pass locally on Windows. Earlier
+contract-2 source CI passed controller tests on Windows/Linux/macOS and the real
+Linux Docker topology fixture (runs 36008487072 and 36008495184). Physical macOS
+and ARM Docker execution remain unverified.
+
+The full workflow completed successfully at 14:23:59 UTC. The controller exited
+zero, removed its runner registration/container/network/checkout volume and
+cleared active state. All request smoke resources were absent. A scoped follow-up
+removed the unused runner image. The designated persistent local test environment
+was subsequently exempted by the owner and is tracked in the application ledger.
