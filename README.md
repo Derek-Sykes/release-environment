@@ -56,14 +56,17 @@ public launcher repository does not grant access to private application source.
 ## What happens
 
 1. Resolve GitHub `main` to an exact commit and verify the app's workflow contract.
-2. For `local`, start a fresh one-job GitHub runner connected to your local Docker engine.
+2. For `local`, start a fresh request-scoped GitHub runner connected to your local Docker engine.
    The runner receives only that request's unique label and temporary credentials.
 3. Dispatch the app's workflow. It checks out that commit into disposable storage,
-   builds the production image once, and exercises the same checks on either route.
-4. A test-only run stops here. A release publishes the exact tested image to GHCR.
+   builds the production image once, and exercises its production checks on either route.
+4. A release publishes that tested image to GHCR. Test-only runs never publish or deploy.
 5. The existing server runner verifies the selected revision and request order, performs the app's
-   backup/migration procedure, deploys by digest and verifies service health.
-6. The launcher removes its temporary runner, checkout volume and containers.
+   backup/migration procedure, deploys by digest and verifies service health. VoiceVault's
+   development and agent checks run independently alongside deployment on the build runner.
+6. After all jobs finish, the launcher reports their separate results and removes its
+   temporary runner, checkout volume and containers. A development failure does not
+   undo or obscure a successful production deployment.
    Docker build cache and the reusable runner image remain for speed.
 
 VoiceVault releases are manual: merging dev into main does not publish or deploy.
